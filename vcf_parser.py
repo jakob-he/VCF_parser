@@ -51,56 +51,81 @@ class VCF_parser:
         - Number of homozygous calls (for substitiotions of one base)
         - mean,sd and median of the Genotype quality
         """
-        ti = 0
-        tv = 0
-        het = 0
-        hom = 0
-        gq = []
+        self._ti = 0
+        self._tv = 0
+        self._het = 0
+        self._hom = 0
+        self._gq = []
+        self._mu_types = {}
 
         for index, variant in self._df.iterrows():
-            purine = ['A','G']
-            pyrimidine = ['C','T']
-
-            # check for transitions and transversions
-            if variant['REF'] in purine and variant['ALT'] in purine:
-                ti += 1
-            elif variant['REF'] in purine and variant['ALT'] in purine:
-                ti += 1
-            elif variant['ALT'] in purine and variant['REF'] in pyrimidine:
-                tv += 1
-            elif variant['ALT'] in purine and variant['REF'] in pyrimidine:
-                tv += 1
-
-            # check for heterozygous/homozygous calls
-            # TODO generalize for multisample vcfs
-            genotype = variant[-1].split(":")
-
-            if genotype[0] in ['0/1', '1/2', '0|1', '1|2']:
-                het += 1
-            elif genotype[0] in ['0/0', '1/1', '0|0', '1|1']:
-                hom += 1
-            gq.append(int(genotype[-2]))
+            self._check_ti_tv(variant)
+            self._check_genotype(variant)
+            self._check_mutation_types(variant)
 
         parameters = ['Variant call Phred score', 'Total variants called', 'Transitions',
                       'Transversions', 'Ti/Tv', 'Het calls', 'Hom calls', 'Het/Hom', 'mean GQ', 'std GQ', 'median GQ']
-        values = [self._get_mean_phred(), self._df.shape[0], ti, tv, ti /
-                  tv, het, hom, het / hom, np.mean(gq), np.std(gq), np.median(gq)]
+        values = [self._get_mean_phred(), self._df.shape[0], self._ti, self._tv, self._ti /
+                  self._tv, self._het, self._hom, self._het / self._hom, np.mean(self._gq), np.std(self._gq), np.median(self._gq)]
         range = ['-', '-', '-', '-', '[2-3]',
                  '-', '-', '[1.3-2.0]', '-', '-', '-']
         statistics = pandas.DataFrame(
             {'Parameters': parameters, 'Values': values, 'Range': range})
+
+        # add mutation type information
+        #!! only available after annotation with e.g. jannovar
+        nonsynomous = self._mu_types['missense_variant'] + self._mu_types['stop_gained'] 
+        statistics = statistics.append(pandas.DataFrame({'Parameters': ['Synonymous variants', 'Nonsynomous variants', 'ns/ss'], 'Values': [self._mu_types['synonymous_variant'], nonsynomous, nonsynomous / self._mu_types['synonymous_variant']], 'Range': ['-', '-', '[0.8-1.0]']}))
+        statistics.reset_index(inplace=True)
         return statistics
 
-    def show_statistics(self):
-        self._statistics = self._get_statistics()
-        print(self._statistics.to_string())
+    def _check_ti_tv(self, variant: pandas.Series):
+        purine=['A', 'G']
+        pyrimidine=['C', 'T']
 
+        # check for transitions and transversions
+        if variant['REF'] in purine and variant['ALT'] in purine:
+            self._ti += 1
+        elif variant['REF'] in purine and variant['ALT'] in purine:
+            self._ti += 1
+        elif variant['ALT'] in purine and variant['REF'] in pyrimidine:
+            self._tv += 1
+        elif variant['ALT'] in purine and variant['REF'] in pyrimidine:
+            self._tv += 1
+
+    def _check_genotype(self, variant: pandas.Series):
+        genotype=variant[-1].split(":")
+
+        if genotype[0] in ['0/1', '1/2', '0|1', '1|2']:
+            self._het += 1
+        elif genotype[0] in ['0/0', '1/1', '0|0', '1|1']:
+            self._hom += 1
+        self._gq.append(int(genotype[-2]))
+
+    def _check_mutation_types(self, variant: pandas.Series):
+        # hardcoded! TODO: dynamic approach
+        annotation=variant['INFO'].split(";")[3].split("|")[1]
+        if annotation in self._mu_types:
+            self._mu_types[annotation] += 1
+        else:
+            self._mu_types[annotation]=1
+
+    def statistic_report(self):
+        print("=========== Statistic Report ============\n")
+        self._statistics=self._get_statistics()
+        print(self._statistics.to_string())
+        print(self._get_variant_dist().to_string())
+
+    def _get_variant_dist(self):
+        print("\n=========== Variant Distribution ============")
+        dist = pandas.DataFrame.from_dict(self._mu_types,columns = ["Count"], orient = 'index')
+        return dist
 
 # test
 def main():
-    testvcf = "daughter.vcf"
-    parsed = VCF_parser(testvcf)
-    parsed.show_statistics()
+    testvcf="daughter_onTarget_annotated.vcf"
+    parsed=VCF_parser(testvcf)
+    parsed.statistic_report()
 
 
 if __name__ == "__main__":
