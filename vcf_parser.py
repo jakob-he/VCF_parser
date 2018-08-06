@@ -74,7 +74,7 @@ class VCF_parser:
 
         # add mutation type information
         #!! only available after annotation with e.g. jannovar
-        nonsynomous = self._mu_types['missense_variant'] + self._mu_types['stop_gained'] 
+        nonsynomous = self._mu_types['missense_variant'] + self._mu_types['stop_gained']
         statistics = statistics.append(pandas.DataFrame({'Parameters': ['Synonymous variants', 'Nonsynomous variants', 'ns/ss'], 'Values': [self._mu_types['synonymous_variant'], nonsynomous, nonsynomous / self._mu_types['synonymous_variant']], 'Range': ['-', '-', '[0.8-1.0]']}))
         statistics.reset_index(inplace=True)
         return statistics
@@ -119,13 +119,33 @@ class VCF_parser:
     def _get_variant_dist(self):
         print("\n=========== Variant Distribution ============")
         dist = pandas.DataFrame.from_dict(self._mu_types,columns = ["Count"], orient = 'index')
-        return dist
+        return
+
+    def filter_vcf(self,threshold:int = 0.1):
+        print("\n========== Filter variants with MAF <= {} ===========".format(threshold))
+        current_length = self._df.shape[0]
+        for index, variant in self._df.iterrows():
+            maf = self.get_maf(variant)
+            if float(maf) <= threshold:
+                self._df.drop(index, inplace = True)
+        filtered_length = self._df.shape[0]
+        print("\n filtered {} variants".format(current_length-filtered_length))
+
+    def get_maf(self,variant: pandas.Series):
+        if variant['ID'] != '.':
+            afs = variant['INFO'].split('|')[-1].split(';')[2]
+            if 'CAF' in afs:
+                return(min(afs.split(',')))
+            else:
+                return(1)
+        else:
+            return(1)
 
 # test
 def main():
-    testvcf="daughter_onTarget_annotated.vcf"
+    testvcf="../data/daughter-annotated-all-dbsnp.vcf"
     parsed=VCF_parser(testvcf)
-    parsed.statistic_report()
+    parsed.filter_vcf()
 
 
 if __name__ == "__main__":
